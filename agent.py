@@ -31,12 +31,11 @@ class ReplayMemory(object):
 class DQN(nn.Module):
     def __init__(self, h, w, outputs):
         super().__init__()
-        self.bn1 = nn.BatchNorm2d(1)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1)
-        self.bn2 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1)
-        #self.bn3 = nn.BatchNorm2d(32)
-        #self.conv3 = nn.Conv2d(32, 64, kernel_size=2, stride=1)
+        
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=2, stride=1)
+        self.bn1 = nn.BatchNorm2d(16, momentum=0.1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=2, stride=1)
+        self.bn2 = nn.BatchNorm2d(32, momentum=0.1)
 
         # Calculates output size of convolutional operation
         def conv2d_size_out(size, kernel_size=2, stride=1):
@@ -45,16 +44,14 @@ class DQN(nn.Module):
         convh = conv2d_size_out(conv2d_size_out(h))
         linear_input_size = convw * convh * 32 # total number of input nodes for fully-connected layer
 
-        self.fc1 = nn.Linear(linear_input_size + 1, outputs)
-        #self.fc2 = nn.Linear(64, outputs)
+        self.fc1 = nn.Linear(linear_input_size + 1, 64)
+        self.fc2 = nn.Linear(64, outputs)
 
     def forward(self, x, direction):
-        x = F.relu(self.conv1(self.bn1(x)))
-        x = F.relu(self.conv2(self.bn2(x)))
-        #x = F.relu(self.conv3(self.bn3(x)))
-        #x = F.relu(self.fc1(torch.cat((x.view(x.size(0), -1), direction), dim=1)))
-        #x = F.softmax(self.fc2(x), dim=1)
-        x = F.softmax(self.fc1(torch.cat((x.view(x.size(0), -1), direction), dim=1)), dim=1)
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.fc1(torch.cat((x.view(x.size(0), -1), direction), dim=1)))
+        x = self.fc2(x)
         return x
 
 class SnakeAgent:
@@ -70,24 +67,28 @@ class SnakeAgent:
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
 
-        self.optimizer = optim.Adam(self.policy_net.parameters())
-        self.memory = ReplayMemory(10000)
+        self.optimizer = optim.SGD(self.policy_net.parameters(), lr=0.1, momentum=0.9) #Adam(self.policy_net.parameters())
+        self.memory = ReplayMemory(1000)
 
         self.steps_done = 0
         
         self.BATCH_SIZE = 128
-        self.GAMMA = 0.999
+        self.GAMMA = 0.99
         self.EPS_START = 0.99
         self.EPS_END = 0.05
         self.EPS_DECAY = 1000
         self.TARGET_UPDATE = 10
         self.target_update_count = 0
 
+        self.show_logs = False
+
     def action(self, state, t):
         board, direction = state
 
-        weights = self.policy_net(board, direction)
-        return torch.multinomial(weights, 1)
+        # weights = self.policy_net(board, direction)
+        # if self.show_logs:
+        #     print(F.softmax(weights))
+        # return torch.multinomial(weights - torch.min(weights), 1)
 
         ###### eps-greedy method ######
         sample = random.random()
@@ -134,7 +135,7 @@ class SnakeAgent:
         expected_state_action_values = (next_state_values * self.GAMMA).view(-1, 1) + reward_batch
 
         # Compute the loss
-        loss = F.cross_entropy(state_action_values, expected_state_action_values.unsqueeze(1))
+        loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -150,3 +151,6 @@ class SnakeAgent:
 
     def get_memory(self):
         return self.memory
+
+    def toggle_logs(self):
+        self.show_logs = not self.show_logs

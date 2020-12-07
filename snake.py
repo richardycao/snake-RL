@@ -46,31 +46,29 @@ class Snake(arcade.Window):
             "FOOD": arcade.color.RED
         }
         # Snake params
-        self.body = [(2,0), (1,0), (0,0)]
-        self.direction = 2 # 1: left, 2: up, 3: right, 4: down
+        self.body = [(2,2), (2,1), (2,0)]
+        #self.direction = 2 # 0: left, 1: up, 2: right, 3: down
         # Food params
         self.food_r = np.random.randint(0, high=self.rows)
         self.food_c = np.random.randint(0, high=self.cols)
-        self.score = 0
+        #self.score = 0
         self.avg_score = [0 for _ in range(30)]
         self.avg_score_count = 0
         # Others
         self.step_key = True
         self.speed = 1
         # AI params
-        #self.board = np.zeros((self.rows, self.cols)) # 0: empty, 1: snake, 2: food
-        self.board = torch.zeros(self.rows, self.cols, dtype=torch.float32) # 0: empty, 1: snake, 2: food
-        #self.prev_board = self.board.copy()
-        self.action = torch.zeros((1,1)) # 0: no action, 1: left, 2: up, 3: right, 4: down
+        #self.board = torch.zeros(self.rows, self.cols, dtype=torch.float32) # 0: empty, 1: snake, 2: food
+        #self.action = torch.full((1,1), 2) # 0: left, 1: up, 2: right, 3: down
+        #self.t = 0
         self.ai_enabled = False
-        self.t = 0
 
-        self.agent = SnakeAgent(self.cols, self.rows, 5)
+        self.agent = SnakeAgent(self.cols, self.rows, 4)
 
     def reset(self):
         # Erase the board (for AI)
         self.board = torch.zeros(self.rows, self.cols)
-        self.action = torch.zeros((1,1))
+        self.action = torch.full((1,1), 2)
         self.t = 0
         self.score = 0
         # Erase old food
@@ -79,16 +77,28 @@ class Snake(arcade.Window):
         for r, c in self.body:
             self.fill_rect(r, c, self.colors["EMPTY"])
 
-        self.body = [(2,0), (1,0), (0,0)]
+        self.body = [(2,2), (2,1), (2,0)]
+        self.direction = np.random.randint(0, high=4)
         # Fill in snake body
         for r, c in self.body:
             self.board[r, c] = 1
             self.fill_rect(r, c, self.colors["BODY"])
-        self.direction = 2
         self.new_food()
-        
-        #self.prev_board = self.board.copy()
 
+    # Doesn't do anything atm
+    def new_body(self):
+        head = np.array(self.body[0])
+        neck = np.array(self.body[1])
+        hn = head - neck
+        if hn[0] == 0 and hn[1] < 0:
+            self.direction = 0
+        elif hn[0] > 0 and hn[1] == 0:
+            self.direction = 1
+        elif hn[0] == 0 and hn[1] > 0:
+            self.direction = 2
+        elif hn[0] < 0 and hn[1] == 0:
+            self.direction = 3
+        
     def new_food(self):
         # TODO
         # if board has no empty spots:
@@ -144,22 +154,22 @@ class Snake(arcade.Window):
         # move the snake forward
         new_head = (r,c)
         # set movement direction
-        if self.action == 1 and (self.direction != 3):
+        if self.action == 0 and (self.direction != 2):
+            self.direction = 0
+        elif self.action == 1 and (self.direction != 3):
             self.direction = 1
-        elif self.action == 2 and (self.direction != 4):
+        elif self.action == 2 and (self.direction != 0):
             self.direction = 2
         elif self.action == 3 and (self.direction != 1):
             self.direction = 3
-        elif self.action == 4 and (self.direction != 2):
-            self.direction = 4
         # set new position
-        if self.direction == 1:
+        if self.direction == 0:
             new_head = (r,c-1)
-        elif self.direction == 2:
+        elif self.direction == 1:
             new_head = (r+1,c)
-        elif self.direction == 3:
+        elif self.direction == 2:
             new_head = (r,c+1)
-        elif self.direction == 4:
+        elif self.direction == 3:
             new_head = (r-1,c)
         # if going to be (out of bounds) or (ate itself), then died
         died = False
@@ -180,14 +190,14 @@ class Snake(arcade.Window):
             #print("final score:", self.score)
             self.avg_score.append(self.score)
             self.avg_score.pop(0)
-            self.avg_score_count = (self.avg_score_count + 1) % 50
+            self.avg_score_count = (self.avg_score_count + 1) % 30
             if self.avg_score_count == 0:
                 print("Average score:", np.average(self.avg_score))
             self.reset()
 
         ##########################################################################
         if self.ai_enabled:                                                     ##
-            reward = torch.tensor(-1 if died else (1 if ate else 0).view(1, 1))
+            reward = torch.tensor(-1 if died else (1 if ate else -0.05).view(1, 1))
             next_state = (self.board.view(1, 1, self.board.size()[0], self.board.size()[1]), 
                             torch.tensor(self.direction, dtype=torch.float32).clone().detach().view(1, 1)) if not died else None
             self.agent.get_memory().push(state, self.action, next_state, reward)##
@@ -198,16 +208,16 @@ class Snake(arcade.Window):
     def on_key_press(self, key, modifiers):
         if self.step_key and not self.ai_enabled:
             if key == arcade.key.LEFT:
-                self.action[0,0] = 1
+                self.action[0,0] = 0
                 self.step_key = False
             elif key == arcade.key.UP:
-                self.action[0,0] = 2
+                self.action[0,0] = 1
                 self.step_key = False
             elif key == arcade.key.RIGHT:
-                self.action[0,0] = 3
+                self.action[0,0] = 2
                 self.step_key = False
             elif key == arcade.key.DOWN:
-                self.action[0,0] = 4
+                self.action[0,0] = 3
                 self.step_key = False
 
         if key == arcade.key.A:
@@ -223,6 +233,9 @@ class Snake(arcade.Window):
         elif key == arcade.key.E:
             self.speed = 200
             self.set_update_rate(1/self.speed)
+
+        if key == arcade.key.L:
+            self.agent.toggle_logs()
 
     def draw_rect(self, r, c, color):
         arcade.draw_rectangle_outline(
