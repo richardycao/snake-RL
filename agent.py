@@ -32,11 +32,11 @@ class DQN(nn.Module):
     def __init__(self, h, w, outputs):
         super().__init__()
         self.bn1 = nn.BatchNorm2d(1)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=2, stride=1)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1)
         self.bn2 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=2, stride=1)
-        self.bn3 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=2, stride=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1)
+        #self.bn3 = nn.BatchNorm2d(32)
+        #self.conv3 = nn.Conv2d(32, 64, kernel_size=2, stride=1)
 
         # Calculates output size of convolutional operation
         def conv2d_size_out(size, kernel_size=2, stride=1):
@@ -46,7 +46,7 @@ class DQN(nn.Module):
         linear_input_size = convw * convh * 32 # total number of input nodes for fully-connected layer
 
         self.fc1 = nn.Linear(linear_input_size + 1, outputs)
-        self.fc2 = nn.Linear(64, outputs)
+        #self.fc2 = nn.Linear(64, outputs)
 
     def forward(self, x, direction):
         x = F.relu(self.conv1(self.bn1(x)))
@@ -89,6 +89,7 @@ class SnakeAgent:
         weights = self.policy_net(board, direction)
         return torch.multinomial(weights, 1)
 
+        ###### eps-greedy method ######
         sample = random.random()
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * np.exp(-t / self.EPS_DECAY)
 
