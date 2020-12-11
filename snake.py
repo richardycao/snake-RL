@@ -34,8 +34,8 @@ class Snake(arcade.Window):
         self.right_margin = 20
         self.bot_margin = 20
         # Board params
-        self.rows = 4
-        self.cols = 4
+        self.rows = 10
+        self.cols = 10
         self.rect_width = (self.width - self.left_margin - self.right_margin) / self.cols
         self.rect_height = (self.height - self.top_margin - self.bot_margin) / self.rows
         self.line_width = 1
@@ -47,9 +47,11 @@ class Snake(arcade.Window):
         }
         # Snake params
         self.body = [(2,2), (2,1), (2,0)]
-        self.decay = 0.95
+        self.head_value = 3
+        self.decay = 1
         # Food params
         self.food = (0,0)
+        self.food_value = 10
         #self.score = 0
         self.avg_score = [0 for _ in range(100)]
         self.avg_score_count = 0
@@ -82,9 +84,9 @@ class Snake(arcade.Window):
         self.direction = np.random.randint(0, high=4) if self.ai_enabled else 2
         # Fill in snake body
         for r, c in self.body:
-            self.set_board(r, c, 0.5)
+            self.set_board(r, c, self.decay)
             self.fill_rect(r, c, self.colors["BODY"])
-        self.set_board(self.body[0][0], self.body[0][1], 1)
+        self.set_board(self.body[0][0], self.body[0][1], self.head_value)
         self.new_food()
 
     # Doesn't do anything atm
@@ -108,6 +110,7 @@ class Snake(arcade.Window):
     def new_food(self):
         empty_spots = (self.board == 0).nonzero()
         if len(empty_spots) == 0: # if there are no empty spots
+            self.reset()
             return
 
         # Make new food
@@ -115,7 +118,7 @@ class Snake(arcade.Window):
         self.set_food(empty_spots[empty_idx])
         
         # Add food to board
-        self.set_board(self.food[0], self.food[1], 2)
+        self.set_board(self.food[0], self.food[1], self.food_value)
         self.fill_rect(self.food[0], self.food[1], self.colors["FOOD"])
         
     def setup(self):
@@ -135,8 +138,8 @@ class Snake(arcade.Window):
     def update(self, delta_time):
         ##########################################################################
         state = self.board.view(1, 1, self.board.size()[0], self.board.size()[1])
-        if self.ai_enabled:
-            self.action = self.agent.action(state, self.t)                      ##
+        if self.ai_enabled:                                                     ##
+            self.action = self.agent.action(state)                              ##
         ##########################################################################
 
         self.step_key = True
@@ -198,12 +201,10 @@ class Snake(arcade.Window):
             self.reset()
 
         ##########################################################################
-        #if self.ai_enabled:                                                    ##
-        reward = torch.tensor(-1 if died else 1 if ate else 0).view(1, 1)
+        reward = torch.tensor(-1 if died else 1 if ate else 0).view(1, 1)       ##
         next_state = self.board.view(1, 1, self.board.size()[0], self.board.size()[1]) if not died else None
-        self.agent.get_memory().push(state, self.action, next_state, reward)    ##
                                                                                 ##
-        self.agent.optimize()                                                   ##
+        self.agent.optimize(state, self.action, next_state, reward)             ##
         ##########################################################################
     
     def on_key_press(self, key, modifiers):

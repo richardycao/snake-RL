@@ -1,1 +1,1 @@
-Agent tries to learn to play snake using DQN. It doesn't work well atm.
+Agent learns to play snake using Policy Gradient Actor and DQN Critic.

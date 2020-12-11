@@ -28,35 +28,34 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
 
-class DQN(nn.Module):
+class ValueNet(nn.Module):
     def __init__(self, h, w, outputs):
         super().__init__()
         
-        self.bn0 = nn.BatchNorm2d(1)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=2, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=2, stride=1)
-        self.bn2 = nn.BatchNorm2d(32)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1)
+        #self.bn1 = nn.BatchNorm2d(16)
+        #self.pool1 = nn.MaxPool2d((2,2))
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1)
+        #self.bn2 = nn.BatchNorm2d(32)
 
         # Calculates output size of convolutional operation
-        def conv2d_size_out(size, kernel_size=2, stride=1, padding=0):
+        def conv2d_size_out(size, kernel_size=3, stride=1, padding=0):
             return (size - (kernel_size - 1) - 1 + 2*padding) // stride + 1
-        convw = conv2d_size_out(conv2d_size_out(w, padding=1))
-        convh = conv2d_size_out(conv2d_size_out(h, padding=1))
+        convw = conv2d_size_out(conv2d_size_out(w))
+        convh = conv2d_size_out(conv2d_size_out(h))
         linear_input_size = convw * convh * 32 # total number of input nodes for fully-connected layer
 
         self.fc1 = nn.Linear(linear_input_size, 64)
         self.fc2 = nn.Linear(64, outputs)
 
     def forward(self, x):
-        x = self.bn0(x)
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.conv1(x)
+        x = self.conv2(x)
         x = F.relu(self.fc1(x.view(x.size(0), -1)))
         x = self.fc2(x)
         return x
 
-class SnakeAgent:
+class SnakeCritic:
     def __init__(self, w, h, n_actions):
         self.w = w
         self.h = h
@@ -64,35 +63,31 @@ class SnakeAgent:
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        self.policy_net = DQN(w, h, n_actions)
-        self.target_net = DQN(w, h, n_actions)
-        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.value_net = ValueNet(w, h, n_actions)
+        self.target_net = ValueNet(w, h, n_actions)
+        self.target_net.load_state_dict(self.value_net.state_dict())
         self.target_net.eval()
 
-        self.optimizer = optim.SGD(self.policy_net.parameters(), lr=0.1, momentum=0.9) #Adam(self.policy_net.parameters())
-        self.memory = ReplayMemory(1000)
-
-        self.steps_done = 0
+        self.optimizer = optim.Adam(self.value_net.parameters(), lr=0.0001)
+        self.memory = ReplayMemory(10000)
         
-        self.BATCH_SIZE = 128
-        self.GAMMA = 0.99
-        self.EPS_START = 0.99
-        self.EPS_END = 0.01
-        self.EPS_DECAY = 3000
-        self.TARGET_UPDATE = 10
+        self.BATCH_SIZE = 64
+        self.GAMMA = 0.95
+        # self.EPS_START = 0.99
+        # self.EPS_END = 0.00
+        # self.EPS_DECAY = 3000
+        self.TARGET_UPDATE = 1000
         self.target_update_count = 0
 
-        self.show_logs = False
+    # def action(self, state, t):
+    #     sample = random.random()
+    #     eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * np.exp(-t / self.EPS_DECAY)
 
-    def action(self, state, t):
-        sample = random.random()
-        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * np.exp(-t / self.EPS_DECAY)
-
-        if sample > eps_threshold: # greedy
-            with torch.no_grad():
-                return self.policy_net(state).max(1)[1].view(1, 1)
-        else: # random
-            return torch.tensor([[random.randrange(self.n_actions)]], device=self.device, dtype=torch.long)
+    #     if sample > eps_threshold: # greedy
+    #         with torch.no_grad():
+    #             return self.value_net(state).max(1)[1].view(1, 1)
+    #     else: # random
+    #         return torch.tensor([[random.randrange(self.n_actions)]], device=self.device, dtype=torch.long)
 
     def optimize(self):
         if len(self.memory) < self.BATCH_SIZE:
@@ -111,7 +106,7 @@ class SnakeAgent:
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
 
-        state_action_values = self.policy_net(states_batch).gather(1, action_batch)
+        state_action_values = self.value_net(states_batch).gather(1, action_batch)
 
         # state value or 0 in case the state was final.
         next_state_values = torch.zeros(self.BATCH_SIZE, device=self.device)
@@ -126,17 +121,88 @@ class SnakeAgent:
         # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
-        for param in self.policy_net.parameters():
+        for param in self.value_net.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
-        # Copy policy net over to target net
+        # Copy value net over to target net
         self.target_update_count = (self.target_update_count + 1) % self.TARGET_UPDATE
         if self.target_update_count == 0:
-            self.target_net.load_state_dict(self.policy_net.state_dict())
+            self.target_net.load_state_dict(self.value_net.state_dict())
 
-    def get_memory(self):
-        return self.memory
+class PolicyNet(nn.Module):
+    def __init__(self, h, w, outputs):
+        super().__init__()
 
-    def toggle_logs(self):
-        self.show_logs = not self.show_logs
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1)
+
+        # Calculates output size of convolutional operation
+        def conv2d_size_out(size, kernel_size=3, stride=1, padding=0):
+            return (size - (kernel_size - 1) - 1 + 2*padding) // stride + 1
+        convw = conv2d_size_out(conv2d_size_out(w))
+        convh = conv2d_size_out(conv2d_size_out(h))
+        linear_input_size = convw * convh * 32 # total number of input nodes for fully-connected layer
+
+        self.fc1 = nn.Linear(linear_input_size, 64)
+        self.fc2 = nn.Linear(64, outputs)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.fc1(x.view(x.size(0), -1))
+        x = F.softmax(self.fc2(x), dim=1)
+        return x
+
+class SnakeActor:
+    def __init__(self, w, h, n_actions):
+        self.w = w
+        self.h = h
+        self.n_actions = n_actions
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.policy = PolicyNet(w, h, n_actions)
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=0.0001)
+        self.GAMMA = 0.95
+
+    def action(self, state):
+        return torch.multinomial(self.policy(state), 1)
+
+    def optimize(self, state_action_value, expected_state_action_value):
+        #state_action_values = self.policy(state)
+        #expected_state_action_values = reward + self.GAMMA * self.policy(next_state)
+        
+        # Compute the loss
+        loss = F.cross_entropy(state_action_value, expected_state_action_value)
+
+        # Optimize the model
+        self.optimizer.zero_grad()
+        loss.backward()
+        for param in self.policy.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.optimizer.step()
+
+class SnakeAgent:
+    def __init__(self, w, h, n_actions):
+        self.actor = SnakeActor(w, h, n_actions)
+        self.critic = SnakeCritic(w, h, n_actions)
+
+        self.GAMMA = 0.95
+
+    def action(self, state):
+        return self.actor.action(state)
+
+    def optimize(self, state, action, next_state, reward):
+        self.critic.memory.push(state, action, next_state, reward)
+        self.critic.optimize()
+
+        # Critic evaluates Q(s,a) for each a, given input s
+        state_action_value = self.critic.value_net(state)
+        expected_state_action_value = reward + self.GAMMA * self.critic.value_net(next_state) if next_state != None else 0
+
+        self.actor.optimize(state_action_value, expected_state_action_value.argmax().view(1))
+
+
+
+    
